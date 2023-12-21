@@ -1,0 +1,51 @@
+name: build
+
+on:
+  push:
+    branches:
+      - '*'
+
+jobs:
+  tools:
+    name: Tools
+    runs-on: ubuntu-latest
+    steps:
+      - run: |
+          sudo apt-get install -y gcc-arm-linux-gnueabihf g++-arm-linux-gnueabihf
+          sudo apt-get install -y gcc-aarch64-linux-gnu g++-aarch64-linux-gnu
+
+  build-arm:
+    name: Build arm
+    runs-on: ubuntu-latest
+    needs: tools
+    steps:
+      - uses: actions/checkout@v3
+      - run: |
+          mkdir -p build.arm
+          cp .github/drm-misc-arm_defconfig build.arm/.config
+          make KBUILD_OUTPUT=build.arm ARCH=arm CROSS_COMPILE=arm-linux-gnueabihf- olddefconfig
+          make KBUILD_OUTPUT=build.arm ARCH=arm CROSS_COMPILE=arm-linux-gnueabihf- -j8
+
+  build-arm64:
+    name: Build arm64
+    runs-on: ubuntu-latest
+    needs: tools
+    steps:
+      - uses: actions/checkout@v3
+      - run: |
+          mkdir -p build.arm64
+          cp .github/drm-misc-arm64_defconfig build.arm64/.config
+          make KBUILD_OUTPUT=build.arm64 ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- olddefconfig
+          make KBUILD_OUTPUT=build.arm64 ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- -j8
+
+  build-x86:
+    name: Build x86
+    runs-on: ubuntu-latest
+    needs: tools
+    steps:
+      - uses: actions/checkout@v3
+      - run: |
+          mkdir -p build.x86
+          cp .github/drm-misc-x86_defconfig build.x86/.config
+          make KBUILD_OUTPUT=build.x86 olddefconfig
+          make KBUILD_OUTPUT=build.x86 -j8
