@@ -658,9 +658,8 @@ static int i915_driver_register(struct drm_i915_private *dev_priv)
 
 	i915_hwmon_register(dev_priv);
 
-	intel_display_driver_register(display);
+	intel_display_register(display);
 
-	intel_power_domains_enable(display);
 	intel_runtime_pm_enable(&dev_priv->runtime_pm);
 
 	if (i915_switcheroo_register(dev_priv))
@@ -682,9 +681,7 @@ static void i915_driver_unregister(struct drm_i915_private *dev_priv)
 	i915_switcheroo_unregister(dev_priv);
 
 	intel_runtime_pm_disable(&dev_priv->runtime_pm);
-	intel_power_domains_disable(display);
-
-	intel_display_driver_unregister(display);
+	intel_display_unregister(display);
 
 	intel_pxp_fini(dev_priv);
 
