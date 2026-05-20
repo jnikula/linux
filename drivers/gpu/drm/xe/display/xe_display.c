@@ -4,7 +4,6 @@
  */
 
 #include "xe_display.h"
-#include "regs/xe_irq_regs.h"
 
 #include <linux/fb.h>
 
@@ -210,8 +209,7 @@ void xe_display_irq_enable(struct xe_device *xe, u32 gu_misc_iir)
 	if (!xe->info.probe_display)
 		return;
 
-	if (gu_misc_iir & GU_MISC_GSE)
-		intel_opregion_asle_intr(display);
+	intel_display_irq_enable_asle(display, gu_misc_iir);
 }
 
 void xe_display_irq_reset(struct xe_device *xe)
