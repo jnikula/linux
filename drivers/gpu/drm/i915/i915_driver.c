@@ -1704,12 +1704,7 @@ static int intel_runtime_resume(struct device *kdev)
 	 * power well, so hpd is reinitialized from there. For
 	 * everyone else do it here.
 	 */
-	if (!IS_VALLEYVIEW(dev_priv) && !IS_CHERRYVIEW(dev_priv)) {
-		intel_hpd_init(display);
-		intel_hpd_poll_disable(display);
-	}
-
-	skl_watermark_ipc_update(display);
+	intel_display_pm_runtime_resume(display);
 
 	enable_rpm_wakeref_asserts(rpm);
 
