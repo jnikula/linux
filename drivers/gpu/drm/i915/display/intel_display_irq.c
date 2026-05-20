@@ -2605,6 +2605,36 @@ bool intel_display_irq_handler(struct intel_display *display,
 	return display->irq.funcs->handler(display, state);
 }
 
+/**
+ * intel_display_irq_handler_master - dispatch a display interrupt
+ * @display: display device
+ * @master_ctl: master interrupt control register value
+ *
+ * Top-level entry point for the gen11+ master interrupt handler. Dispatches to
+ * the display interrupt handler if the display interrupt bit is set in
+ * @master_ctl.
+ */
+void intel_display_irq_handler_master(struct intel_display *display, u32 master_ctl)
+{
+	if (master_ctl & GEN11_DISPLAY_IRQ)
+		intel_display_irq_handler(display, NULL);
+}
+
+/**
+ * intel_display_irq_enable_asle - handle ASLE GU misc interrupts
+ * @display: display device
+ * @gu_misc_iir: GU misc interrupt identity register value
+ *
+ * Top-level entry point for ASLE delivery via the gen11+ GU misc interrupt.
+ * Dispatches to the opregion ASLE handler if the corresponding bit is set in
+ * @gu_misc_iir.
+ */
+void intel_display_irq_enable_asle(struct intel_display *display, u32 gu_misc_iir)
+{
+	if (gu_misc_iir & GEN11_GU_MISC_GSE)
+		intel_opregion_asle_intr(display);
+}
+
 void intel_display_irq_init(struct intel_display *display)
 {
 	spin_lock_init(&display->irq.lock);
