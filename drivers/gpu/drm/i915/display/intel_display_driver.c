@@ -741,6 +741,27 @@ void intel_display_pm_resume_early(struct intel_display *display)
 	intel_display_power_resume_early(display);
 }
 
+/**
+ * intel_display_pm_runtime_resume - runtime PM resume handling
+ * @display: display device
+ *
+ * High-level runtime PM resume entry point. Re-enables hotplug detection and
+ * watermark IPC after a runtime suspend.
+ */
+void intel_display_pm_runtime_resume(struct intel_display *display)
+{
+	/*
+	 * On VLV/CHV display interrupts are part of the display power well, so
+	 * hpd is reinitialized from there. For everyone else do it here.
+	 */
+	if (!display->platform.valleyview && !display->platform.cherryview) {
+		intel_hpd_init(display);
+		intel_hpd_poll_disable(display);
+	}
+
+	skl_watermark_ipc_update(display);
+}
+
 /*
  * turn all crtc's off, but do not adjust state
  * This has to be paired with a call to intel_modeset_setup_hw_state.
