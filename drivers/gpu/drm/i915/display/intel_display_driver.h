@@ -29,6 +29,10 @@ void intel_display_unregister(struct intel_display *display);
 int intel_display_driver_suspend(struct intel_display *display);
 void intel_display_driver_resume(struct intel_display *display);
 
+void intel_display_pm_suspend_late(struct intel_display *display, bool s2idle);
+void intel_display_pm_shutdown_late(struct intel_display *display);
+void intel_display_pm_resume_early(struct intel_display *display);
+
 /* interface for intel_display_reset.c */
 int __intel_display_driver_resume(struct intel_display *display,
 				  struct drm_atomic_commit *state,

@@ -703,6 +703,44 @@ void intel_display_unregister(struct intel_display *display)
 	intel_display_driver_unregister(display);
 }
 
+/**
+ * intel_display_pm_suspend_late - system suspend late handling
+ * @display: display device
+ * @s2idle: true if suspending to idle (S0ix), false otherwise
+ *
+ * High-level system suspend "late" entry point. Defers most of the work to
+ * intel_display_power_suspend_late().
+ */
+void intel_display_pm_suspend_late(struct intel_display *display, bool s2idle)
+{
+	intel_display_power_suspend_late(display, s2idle);
+}
+
+/**
+ * intel_display_pm_shutdown_late - system shutdown late handling
+ * @display: display device
+ *
+ * High-level system shutdown "late" entry point. The only requirement is to
+ * reboot with display DC states disabled, for now leaving all display power
+ * wells in the INIT power domain enabled.
+ */
+void intel_display_pm_shutdown_late(struct intel_display *display)
+{
+	intel_power_domains_driver_remove(display);
+}
+
+/**
+ * intel_display_pm_resume_early - system resume early handling
+ * @display: display device
+ *
+ * High-level system resume "early" entry point. Defers most of the work to
+ * intel_display_power_resume_early().
+ */
+void intel_display_pm_resume_early(struct intel_display *display)
+{
+	intel_display_power_resume_early(display);
+}
+
 /*
  * turn all crtc's off, but do not adjust state
  * This has to be paired with a call to intel_modeset_setup_hw_state.
