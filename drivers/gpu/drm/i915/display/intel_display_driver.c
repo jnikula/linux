@@ -742,6 +742,25 @@ void intel_display_pm_resume_early(struct intel_display *display)
 }
 
 /**
+ * intel_display_pm_runtime_suspend - runtime PM suspend handling
+ * @display: display device
+ *
+ * High-level runtime PM suspend entry point. Switches hotplug detection over
+ * to polling for the duration of the runtime suspend.
+ */
+void intel_display_pm_runtime_suspend(struct intel_display *display)
+{
+	/*
+	 * On VLV/CHV display interrupts are part of the display power well, so
+	 * hpd is reinitialized from there. For everyone else do it here.
+	 */
+	if (display->platform.valleyview || display->platform.cherryview)
+		return;
+
+	intel_hpd_poll_enable(display);
+}
+
+/**
  * intel_display_pm_runtime_resume - runtime PM resume handling
  * @display: display device
  *
