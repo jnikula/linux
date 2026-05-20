@@ -20,10 +20,12 @@ int intel_display_driver_probe_noirq(struct intel_display *display);
 int intel_display_driver_probe_nogem(struct intel_display *display);
 int intel_display_driver_probe(struct intel_display *display);
 void intel_display_driver_register(struct intel_display *display);
+void intel_display_register(struct intel_display *display);
 void intel_display_driver_remove(struct intel_display *display);
 void intel_display_driver_remove_noirq(struct intel_display *display);
 void intel_display_driver_remove_nogem(struct intel_display *display);
 void intel_display_driver_unregister(struct intel_display *display);
+void intel_display_unregister(struct intel_display *display);
 int intel_display_driver_suspend(struct intel_display *display);
 void intel_display_driver_resume(struct intel_display *display);
 

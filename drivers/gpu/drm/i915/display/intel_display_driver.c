@@ -674,6 +674,35 @@ void intel_display_driver_unregister(struct intel_display *display)
 	intel_vga_unregister(display);
 }
 
+/**
+ * intel_display_register - register the display with userspace and enable
+ *			    runtime PM
+ * @display: display device
+ *
+ * High-level entry point that wraps intel_display_driver_register() with the
+ * runtime power domains being enabled afterwards. Pair with
+ * intel_display_unregister().
+ */
+void intel_display_register(struct intel_display *display)
+{
+	intel_display_driver_register(display);
+	intel_power_domains_enable(display);
+}
+
+/**
+ * intel_display_unregister - disable runtime PM and unregister the display
+ * @display: display device
+ *
+ * High-level entry point that wraps intel_display_driver_unregister() with the
+ * runtime power domains being disabled before. Pair with
+ * intel_display_register().
+ */
+void intel_display_unregister(struct intel_display *display)
+{
+	intel_power_domains_disable(display);
+	intel_display_driver_unregister(display);
+}
+
 /*
  * turn all crtc's off, but do not adjust state
  * This has to be paired with a call to intel_modeset_setup_hw_state.
