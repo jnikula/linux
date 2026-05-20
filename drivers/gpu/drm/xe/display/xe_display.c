@@ -200,8 +200,7 @@ void xe_display_irq_handler(struct xe_device *xe, u32 master_ctl)
 	if (!xe->info.probe_display)
 		return;
 
-	if (master_ctl & DISPLAY_IRQ)
-		intel_display_irq_handler(display, NULL);
+	intel_display_irq_handler_master(display, master_ctl);
 }
 
 void xe_display_irq_enable(struct xe_device *xe, u32 gu_misc_iir)
