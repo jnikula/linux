@@ -39,10 +39,14 @@
 #include "intel_display_wa.h"
 #include "intel_dkl_phy.h"
 #include "intel_dmc.h"
+#include "intel_dmc_wl.h"
 #include "intel_dp.h"
+#include "intel_dp_mst.h"
 #include "intel_dp_tunnel.h"
 #include "intel_dpll.h"
 #include "intel_dpll_mgr.h"
+#include "intel_dram.h"
+#include "intel_encoder.h"
 #include "intel_fb.h"
 #include "intel_fbc.h"
 #include "intel_fbdev.h"
@@ -758,6 +762,316 @@ void intel_display_pm_runtime_suspend(struct intel_display *display)
 		return;
 
 	intel_hpd_poll_enable(display);
+}
+
+/**
+ * intel_display_pm_runtime_suspend_late - runtime PM suspend late handling
+ * @display: display device
+ *
+ * High-level runtime PM "late" suspend entry point. Flushes any pending DMC
+ * wakelock release work so that no register accesses are attempted after the
+ * device has been runtime-suspended.
+ */
+void intel_display_pm_runtime_suspend_late(struct intel_display *display)
+{
+	intel_dmc_wl_flush_release_work(display);
+}
+
+/**
+ * intel_display_pm_suspend - system suspend handling, front part
+ * @display: display device
+ *
+ * High-level system suspend entry point covering the work that both i915 and
+ * xe perform up to and including intel_display_driver_suspend(). Pair with
+ * intel_display_pm_suspend_mid() and intel_display_pm_suspend_late_part() for
+ * the rest of the sequence.
+ *
+ * Split into three parts to accommodate the i915-only non-display work that
+ * is interleaved with the display suspend sequence (intel_irq_suspend(),
+ * intel_dpt_suspend(), i915_ggtt_suspend(), i9xx_display_sr_save()).
+ */
+void intel_display_pm_suspend(struct intel_display *display)
+{
+	/*
+	 * We do a lot of poking in a lot of registers, make sure they work
+	 * properly.
+	 */
+	intel_power_domains_disable(display);
+	drm_client_dev_suspend(display->drm);
+
+	if (intel_display_device_present(display)) {
+		drm_kms_helper_poll_disable(display->drm);
+		intel_display_driver_disable_user_access(display);
+	}
+
+	intel_display_driver_suspend(display);
+}
+
+/**
+ * intel_display_pm_suspend_mid - system suspend handling, middle part
+ * @display: display device
+ *
+ * High-level system suspend middle entry point. See intel_display_pm_suspend()
+ * for the rationale of the split.
+ */
+void intel_display_pm_suspend_mid(struct intel_display *display)
+{
+	intel_hpd_cancel_work(display);
+
+	if (intel_display_device_present(display))
+		intel_display_driver_suspend_access(display);
+
+	intel_encoder_suspend_all(display);
+}
+
+/**
+ * intel_display_pm_suspend_late_part - system suspend handling, tail
+ * @display: display device
+ * @target_state: PCI power state to notify opregion about
+ *
+ * High-level system suspend tail entry point. See intel_display_pm_suspend()
+ * for the rationale of the split.
+ */
+void intel_display_pm_suspend_late_part(struct intel_display *display,
+					pci_power_t target_state)
+{
+	intel_opregion_suspend(display, target_state);
+	intel_dmc_suspend(display);
+}
+
+/**
+ * intel_display_pm_shutdown - system shutdown handling, front part
+ * @display: display device
+ *
+ * High-level system shutdown entry point. Mirrors intel_display_pm_suspend()
+ * for the parts up to and including intel_display_driver_suspend(). Pair with
+ * intel_display_pm_shutdown_mid() and intel_display_pm_shutdown_tail() for
+ * the rest of the shutdown sequence; the caller is responsible for calling
+ * intel_dp_mst_suspend() between them, which is the documented shutdown-vs-
+ * suspend difference.
+ */
+void intel_display_pm_shutdown(struct intel_display *display)
+{
+	intel_power_domains_disable(display);
+	drm_client_dev_suspend(display->drm);
+
+	if (intel_display_device_present(display)) {
+		drm_kms_helper_poll_disable(display->drm);
+		intel_display_driver_disable_user_access(display);
+		intel_display_driver_suspend(display);
+	}
+}
+
+/**
+ * intel_display_pm_shutdown_mid - system shutdown handling, middle part
+ * @display: display device
+ *
+ * High-level system shutdown middle entry point. Mirrors
+ * intel_display_pm_suspend_mid(), but additionally shuts down all encoders.
+ */
+void intel_display_pm_shutdown_mid(struct intel_display *display)
+{
+	intel_hpd_cancel_work(display);
+
+	if (intel_display_device_present(display))
+		intel_display_driver_suspend_access(display);
+
+	intel_encoder_suspend_all(display);
+	intel_encoder_shutdown_all(display);
+}
+
+/**
+ * intel_display_pm_resume - system resume handling, main part
+ * @display: display device
+ *
+ * High-level system resume entry point. Performs the display work that both
+ * i915 and xe drivers need after the device has been resumed and any non-
+ * display state has been restored. Pair with the matching
+ * intel_display_pm_resume_early() called from the early resume hook.
+ *
+ * The caller is responsible for calling intel_dmc_resume() before this
+ * function. This is because i915 has device-specific display register
+ * restoration (i9xx_display_sr_restore(), intel_gmbus_reset(),
+ * intel_pps_unlock_regs_wa(), intel_init_pch_refclk()) that needs to happen
+ * between intel_dmc_resume() and the rest of the display resume sequence.
+ * Similarly, i915 has intel_clock_gating_init() between
+ * intel_display_driver_init_hw() and the rest; see
+ * intel_display_pm_resume_init_hw() for that split.
+ */
+void intel_display_pm_resume_init_hw(struct intel_display *display)
+{
+	if (intel_display_device_present(display))
+		drm_mode_config_reset(display->drm);
+
+	intel_display_driver_init_hw(display);
+}
+
+/**
+ * intel_display_pm_resume - system resume handling, main part
+ * @display: display device
+ *
+ * High-level system resume entry point for the bulk of the display resume
+ * work, after intel_display_pm_resume_init_hw() and any driver-specific
+ * post-init_hw work (e.g. i915's intel_clock_gating_init()). The caller is
+ * responsible for calling intel_encoder_unblock_all_hpds() before this if it
+ * called intel_encoder_block_all_hpds() during suspend.
+ */
+void intel_display_pm_resume(struct intel_display *display)
+{
+	if (intel_display_device_present(display))
+		intel_display_driver_resume_access(display);
+
+	intel_hpd_init(display);
+
+	intel_display_driver_resume(display);
+
+	if (intel_display_device_present(display)) {
+		intel_display_driver_enable_user_access(display);
+		drm_kms_helper_poll_enable(display->drm);
+	}
+
+	intel_hpd_poll_disable(display);
+
+	intel_opregion_resume(display);
+
+	drm_client_dev_resume(display->drm);
+
+	intel_power_domains_enable(display);
+}
+
+/**
+ * intel_display_resources_init - initialize resources needed for display probe
+ * @display: display device
+ *
+ * Performs the contiguous "resources" initialization that is required before
+ * the display can be fully probed: ACPI OpRegion setup, DRAM topology
+ * detection (used for memory latency calculations), and display bandwidth
+ * hardware init. On error, the OpRegion is cleaned up.
+ *
+ * Returns: 0 on success, negative error code on failure.
+ */
+int intel_display_resources_init(struct intel_display *display)
+{
+	int err;
+
+	intel_opregion_setup(display);
+
+	/*
+	 * Fill the dram structure to get the system dram info. This will be
+	 * used for memory latency calculation.
+	 */
+	err = intel_dram_detect(display);
+	if (err)
+		goto err_opregion;
+
+	intel_bw_init_hw(display);
+
+	return 0;
+
+err_opregion:
+	intel_opregion_cleanup(display);
+	return err;
+}
+
+/**
+ * intel_display_resources_fini - tear down resources from intel_display_resources_init()
+ * @display: display device
+ *
+ * Reverses intel_display_resources_init(). DRAM topology and bandwidth state
+ * have no separate teardown.
+ */
+void intel_display_resources_fini(struct intel_display *display)
+{
+	intel_opregion_cleanup(display);
+}
+
+static void intel_display_fini_early(void *arg)
+{
+	struct intel_display *display = arg;
+
+	intel_hpd_cancel_work(display);
+	intel_display_driver_remove_nogem(display);
+	intel_display_driver_remove_noirq(display);
+	intel_display_resources_fini(display);
+	intel_power_domains_cleanup(display);
+}
+
+/**
+ * intel_display_init_early - high-level display early init
+ * @display: display device
+ *
+ * Performs the contiguous "early" display probe: resources init (opregion,
+ * dram, bw), driver noirq probe and driver nogem probe. Registers a devm
+ * action that reverses everything on driver detach, including
+ * intel_hpd_cancel_work() and intel_power_domains_cleanup().
+ *
+ * Intended for use by drivers (currently xe) whose top-level probe path can
+ * call all of these steps contiguously. Drivers that need to interleave
+ * non-display work between the noirq and nogem probes (e.g. i915, which
+ * installs IRQs in between) should call intel_display_resources_init() and
+ * intel_display_driver_probe_noirq()/nogem() separately instead.
+ *
+ * Returns: 0 on success, negative error code on failure.
+ */
+int intel_display_init_early(struct intel_display *display)
+{
+	int err;
+
+	err = intel_display_resources_init(display);
+	if (err)
+		return err;
+
+	err = intel_display_driver_probe_noirq(display);
+	if (err)
+		goto err_resources;
+
+	err = intel_display_driver_probe_nogem(display);
+	if (err)
+		goto err_noirq;
+
+	return devm_add_action_or_reset(display->drm->dev,
+					intel_display_fini_early, display);
+
+err_noirq:
+	intel_display_driver_remove_noirq(display);
+	intel_power_domains_cleanup(display);
+err_resources:
+	intel_display_resources_fini(display);
+	return err;
+}
+
+static void intel_display_fini(void *arg)
+{
+	struct intel_display *display = arg;
+
+	intel_hpd_poll_fini(display);
+	intel_hdcp_component_fini(display);
+	intel_audio_deinit(display);
+	intel_display_driver_remove(display);
+}
+
+/**
+ * intel_display_init - high-level display init, post gem init
+ * @display: display device
+ *
+ * Performs intel_display_driver_probe(), and registers a devm action that
+ * reverses it (along with intel_hpd_poll_fini(), intel_hdcp_component_fini()
+ * and intel_audio_deinit()) on driver detach.
+ *
+ * Intended for use by drivers (currently xe) that use devm-based teardown.
+ *
+ * Returns: 0 on success, negative error code on failure.
+ */
+int intel_display_init(struct intel_display *display)
+{
+	int err;
+
+	err = intel_display_driver_probe(display);
+	if (err)
+		return err;
+
+	return devm_add_action_or_reset(display->drm->dev,
+					intel_display_fini, display);
 }
 
 /**

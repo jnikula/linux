@@ -1052,13 +1052,8 @@ void i915_driver_shutdown(struct drm_i915_private *i915)
 	intel_dp_mst_suspend(display);
 
 	intel_irq_suspend(i915);
-	intel_hpd_cancel_work(display);
 
-	if (intel_display_device_present(display))
-		intel_display_driver_suspend_access(display);
-
-	intel_encoder_suspend_all(display);
-	intel_encoder_shutdown_all(display);
+	intel_display_pm_shutdown_mid(display);
 
 	intel_dmc_suspend(display);
 
@@ -1120,24 +1115,11 @@ static int i915_drm_suspend(struct drm_device *dev)
 
 	disable_rpm_wakeref_asserts(&dev_priv->runtime_pm);
 
-	/* We do a lot of poking in a lot of registers, make sure they work
-	 * properly. */
-	intel_power_domains_disable(display);
-	drm_client_dev_suspend(dev);
-	if (intel_display_device_present(display)) {
-		drm_kms_helper_poll_disable(dev);
-		intel_display_driver_disable_user_access(display);
-	}
-
-	intel_display_driver_suspend(display);
+	intel_display_pm_suspend(display);
 
 	intel_irq_suspend(dev_priv);
-	intel_hpd_cancel_work(display);
 
-	if (intel_display_device_present(display))
-		intel_display_driver_suspend_access(display);
-
-	intel_encoder_suspend_all(display);
+	intel_display_pm_suspend_mid(display);
 
 	/* Must be called before GGTT is suspended. */
 	intel_dpt_suspend(display);
@@ -1146,11 +1128,9 @@ static int i915_drm_suspend(struct drm_device *dev)
 	i9xx_display_sr_save(display);
 
 	opregion_target_state = suspend_to_idle(dev_priv) ? PCI_D1 : PCI_D3cold;
-	intel_opregion_suspend(display, opregion_target_state);
 
 	dev_priv->suspend_count++;
-
-	intel_dmc_suspend(display);
+	intel_display_pm_suspend_late_part(display, opregion_target_state);
 
 	enable_rpm_wakeref_asserts(&dev_priv->runtime_pm);
 
@@ -1296,33 +1276,13 @@ static int i915_drm_resume(struct drm_device *dev)
 	 */
 	intel_irq_resume(dev_priv);
 
-	if (intel_display_device_present(display))
-		drm_mode_config_reset(dev);
-
 	i915_gem_resume(dev_priv);
 
-	intel_display_driver_init_hw(display);
+	intel_display_pm_resume_init_hw(display);
 
 	intel_clock_gating_init(&dev_priv->drm);
 
-	if (intel_display_device_present(display))
-		intel_display_driver_resume_access(display);
-
-	intel_hpd_init(display);
-
-	intel_display_driver_resume(display);
-
-	if (intel_display_device_present(display)) {
-		intel_display_driver_enable_user_access(display);
-		drm_kms_helper_poll_enable(dev);
-	}
-	intel_hpd_poll_disable(display);
-
-	intel_opregion_resume(display);
-
-	drm_client_dev_resume(dev);
-
-	intel_power_domains_enable(display);
+	intel_display_pm_resume(display);
 
 	intel_gvt_resume(dev_priv);
 

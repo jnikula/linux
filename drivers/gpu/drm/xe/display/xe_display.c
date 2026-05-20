@@ -75,25 +75,9 @@ static void unset_display_features(struct xe_device *xe)
 	xe->drm.driver_features &= ~XE_DISPLAY_DRIVER_FEATURES;
 }
 
-static void xe_display_fini_early(void *arg)
-{
-	struct xe_device *xe = arg;
-	struct intel_display *display = xe->display;
-
-	if (!xe->info.probe_display)
-		return;
-
-	intel_hpd_cancel_work(display);
-	intel_display_driver_remove_nogem(display);
-	intel_display_driver_remove_noirq(display);
-	intel_opregion_cleanup(display);
-	intel_power_domains_cleanup(display);
-}
-
 int xe_display_init_early(struct xe_device *xe)
 {
 	struct intel_display *display = xe->display;
-	int err;
 
 	if (!xe->info.probe_display)
 		return 0;
@@ -112,60 +96,17 @@ int xe_display_init_early(struct xe_device *xe)
 		return 0;
 	}
 
-	/* Early display init.. */
-	intel_opregion_setup(display);
-
-	/*
-	 * Fill the dram structure to get the system dram info. This will be
-	 * used for memory latency calculation.
-	 */
-	err = intel_dram_detect(display);
-	if (err)
-		goto err_opregion;
-
-	intel_bw_init_hw(display);
-
-	err = intel_display_driver_probe_noirq(display);
-	if (err)
-		goto err_opregion;
-
-	err = intel_display_driver_probe_nogem(display);
-	if (err)
-		goto err_noirq;
-
-	return devm_add_action_or_reset(xe->drm.dev, xe_display_fini_early, xe);
-err_noirq:
-	intel_display_driver_remove_noirq(display);
-	intel_power_domains_cleanup(display);
-err_opregion:
-	intel_opregion_cleanup(display);
-	return err;
-}
-
-static void xe_display_fini(void *arg)
-{
-	struct xe_device *xe = arg;
-	struct intel_display *display = xe->display;
-
-	intel_hpd_poll_fini(display);
-	intel_hdcp_component_fini(display);
-	intel_audio_deinit(display);
-	intel_display_driver_remove(display);
+	return intel_display_init_early(display);
 }
 
 int xe_display_init(struct xe_device *xe)
 {
 	struct intel_display *display = xe->display;
-	int err;
 
 	if (!xe->info.probe_display)
 		return 0;
 
-	err = intel_display_driver_probe(display);
-	if (err)
-		return err;
-
-	return devm_add_action_or_reset(xe->drm.dev, xe_display_fini, xe);
+	return intel_display_init(display);
 }
 
 void xe_display_register(struct xe_device *xe)
@@ -310,38 +251,20 @@ static void xe_display_disable_d3cold(struct xe_device *xe)
 void xe_display_pm_suspend(struct xe_device *xe)
 {
 	struct intel_display *display = xe->display;
-	bool s2idle = suspend_to_idle();
+	pci_power_t target_state = suspend_to_idle() ? PCI_D1 : PCI_D3cold;
 
 	if (!xe->info.probe_display)
 		return;
 
-	/*
-	 * We do a lot of poking in a lot of registers, make sure they work
-	 * properly.
-	 */
-	intel_power_domains_disable(display);
-	drm_client_dev_suspend(&xe->drm);
-
-	if (intel_display_device_present(display)) {
-		drm_kms_helper_poll_disable(&xe->drm);
-		intel_display_driver_disable_user_access(display);
-		intel_display_driver_suspend(display);
-	}
+	intel_display_pm_suspend(display);
 
 	xe_display_flush_cleanup_work(xe);
 
 	intel_encoder_block_all_hpds(display);
 
-	intel_hpd_cancel_work(display);
+	intel_display_pm_suspend_mid(display);
 
-	if (intel_display_device_present(display)) {
-		intel_display_driver_suspend_access(display);
-		intel_encoder_suspend_all(display);
-	}
-
-	intel_opregion_suspend(display, s2idle ? PCI_D1 : PCI_D3cold);
-
-	intel_dmc_suspend(display);
+	intel_display_pm_suspend_late_part(display, target_state);
 }
 
 void xe_display_pm_shutdown(struct xe_device *xe)
@@ -351,29 +274,17 @@ void xe_display_pm_shutdown(struct xe_device *xe)
 	if (!xe->info.probe_display)
 		return;
 
-	intel_power_domains_disable(display);
-	drm_client_dev_suspend(&xe->drm);
-
-	if (intel_display_device_present(display)) {
-		drm_kms_helper_poll_disable(&xe->drm);
-		intel_display_driver_disable_user_access(display);
-		intel_display_driver_suspend(display);
-	}
+	intel_display_pm_shutdown(display);
 
 	xe_display_flush_cleanup_work(xe);
+
 	intel_dp_mst_suspend(display);
+
 	intel_encoder_block_all_hpds(display);
-	intel_hpd_cancel_work(display);
 
-	if (intel_display_device_present(display))
-		intel_display_driver_suspend_access(display);
+	intel_display_pm_shutdown_mid(display);
 
-	intel_encoder_suspend_all(display);
-	intel_encoder_shutdown_all(display);
-
-	intel_opregion_suspend(display, PCI_D3cold);
-
-	intel_dmc_suspend(display);
+	intel_display_pm_suspend_late_part(display, PCI_D3cold);
 }
 
 void xe_display_pm_runtime_suspend(struct xe_device *xe)
@@ -417,7 +328,7 @@ void xe_display_pm_runtime_suspend_late(struct xe_device *xe)
 	 * that we will be on dynamic DC states with DMC wakelock enabled. We
 	 * need to flush the release work in that case.
 	 */
-	intel_dmc_wl_flush_release_work(display);
+	intel_display_pm_runtime_suspend_late(display);
 }
 
 void xe_display_pm_shutdown_late(struct xe_device *xe)
@@ -454,32 +365,11 @@ void xe_display_pm_resume(struct xe_device *xe)
 
 	intel_dmc_resume(display);
 
-	if (intel_display_device_present(display))
-		drm_mode_config_reset(&xe->drm);
-
-	intel_display_driver_init_hw(display);
-
-	if (intel_display_device_present(display))
-		intel_display_driver_resume_access(display);
-
-	intel_hpd_init(display);
+	intel_display_pm_resume_init_hw(display);
 
 	intel_encoder_unblock_all_hpds(display);
 
-	if (intel_display_device_present(display)) {
-		intel_display_driver_resume(display);
-		drm_kms_helper_poll_enable(&xe->drm);
-		intel_display_driver_enable_user_access(display);
-	}
-
-	if (intel_display_device_present(display))
-		intel_hpd_poll_disable(display);
-
-	intel_opregion_resume(display);
-
-	drm_client_dev_resume(&xe->drm);
-
-	intel_power_domains_enable(display);
+	intel_display_pm_resume(display);
 }
 
 void xe_display_pm_runtime_resume(struct xe_device *xe)
