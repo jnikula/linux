@@ -1646,8 +1646,7 @@ static int intel_runtime_suspend(struct device *kdev)
 
 	assert_forcewakes_inactive(&dev_priv->uncore);
 
-	if (!IS_VALLEYVIEW(dev_priv) && !IS_CHERRYVIEW(dev_priv))
-		intel_hpd_poll_enable(display);
+	intel_display_pm_runtime_suspend(display);
 
 	drm_dbg(&dev_priv->drm, "Device suspended\n");
 	return 0;
